@@ -5,6 +5,8 @@ python-dotenv==1.2.2
 certifi==2026.06.17
 torch==2.13.0
 sentence-transformers==5.6.0
+datasets==5.0.1
+accelerate==1.14.0
 faiss-cpu==1.14.3
 google-adk==2.14.1
 psycopg[binary]==3.3.9

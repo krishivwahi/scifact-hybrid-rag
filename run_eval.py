@@ -22,6 +22,10 @@ systems = {
     "Hybrid (RRF)": hybrid,
     "Hybrid + rerank": RerankRetriever(hybrid),
 }
+if os.path.isdir("models/minilm-scifact"):  # produced by finetune.py
+    tuned = EmbeddingRetriever(chunks, "models/minilm-scifact", index_path="data/scifact-ft.faiss")
+    systems["Dense, fine-tuned on SciFact train"] = tuned
+    systems["Hybrid: BM25 + fine-tuned (RRF)"] = HybridRetriever([bm25, tuned])
 if os.environ.get("DATABASE_URL"):  # set it after `docker compose up -d && python load_pg.py`
     from src.pgstore import PgVectorRetriever
     systems["Dense via pgvector (HNSW)"] = PgVectorRetriever(dense.model)

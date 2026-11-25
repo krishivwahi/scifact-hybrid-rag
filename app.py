@@ -19,8 +19,8 @@ class VerifyRequest(BaseModel):
     claim: str = Field(min_length=3, max_length=500)
 
 
-@app.get("/healthz")
-def healthz():
+@app.get("/health")  # Cloud Run reserves paths ending in "z", so /healthz never reaches the app
+def health():
     return {"ok": True}
 
 

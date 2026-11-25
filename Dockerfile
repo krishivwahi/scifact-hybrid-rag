@@ -7,10 +7,11 @@ RUN pip install --no-cache-dir -r requirements.txt --extra-index-url https://dow
 
 COPY src/ src/
 COPY app.py ./
-# Bake the corpus, the prebuilt FAISS index (run download_data.py + run_eval.py first) and model weights
+# Bake the corpus, the fine-tuned model and its prebuilt FAISS index (run download_data.py + finetune.py first)
 # into the image: builds don't depend on the dataset host, and cold starts never re-embed
 COPY data/scifact/ data/scifact/
-COPY data/scifact.faiss data/
+COPY data/scifact-ft.faiss data/
+COPY models/minilm-scifact/ models/minilm-scifact/
 RUN python -c "from src.pipeline import build_retriever; build_retriever()"
 ENV HF_HUB_OFFLINE=1 PORT=8080
 

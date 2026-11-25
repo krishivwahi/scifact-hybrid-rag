@@ -14,7 +14,7 @@ Every design choice below is backed by a measurement on the SciFact test set.
 graph LR
     A[SciFact abstracts] --> B[Chunking<br/>500 words, 50 overlap]
     B --> C[BM25]
-    B --> D[MiniLM embeddings]
+    B --> D[MiniLM fine-tuned<br/>on SciFact train]
     D --> E[(FAISS / pgvector)]
     C --> F[Reciprocal rank fusion]
     E --> F
@@ -35,17 +35,20 @@ graph LR
 | TF-IDF | 0.5835 | 0.0810 | 0.7268 | 0.5522 | 24.6 |
 | BM25 | 0.6628 | 0.0863 | 0.7793 | 0.6337 | 3.3 |
 | Dense (all-MiniLM-L6-v2) | 0.6512 | 0.0897 | 0.7933 | 0.6126 | 19.8 |
-| **Hybrid: BM25 + dense (RRF)** | **0.6913** | **0.0927** | **0.8219** | 0.6589 | 22.0 |
+| Hybrid: BM25 + dense (RRF) | 0.6913 | 0.0927 | 0.8219 | 0.6589 | 22.0 |
 | Hybrid + cross-encoder rerank | 0.6883 | 0.0917 | 0.8156 | 0.6596 | 3106.1 |
 | Dense via pgvector (HNSW) | 0.6512 | 0.0897 | 0.7933 | 0.6126 | 12.8 |
+| Dense, fine-tuned on SciFact train | 0.6934 | **0.0957** | **0.8576** | 0.6479 | 26.3 |
+| **Hybrid: BM25 + fine-tuned (RRF), served** | **0.7014** | 0.0930 | 0.8322 | **0.6676** | 53.4 |
 
-Latency is measured on a laptop CPU (no GPU) and excludes model loading.
+Latency is measured on a laptop CPU (no GPU) and excludes model loading. The fine-tuned rows were measured while another job shared the CPU, so their latency is inflated.
 
 What the numbers say:
 
-- **BM25 is a strong baseline.** This implementation scores 0.663 nDCG@10, matching the 0.665 reported for BM25 in the BEIR paper, and it beats the small dense model. TF-IDF is a much weaker comparison point.
-- **Hybrid retrieval is the clear win:** +3 nDCG points over BM25 and +4 over dense alone. Lexical and semantic retrieval miss different documents, and reciprocal rank fusion combines them without any score calibration.
-- **The reranker did not help.** `cross-encoder/ms-marco-MiniLM-L-6-v2` is trained on web search queries and does not transfer to biomedical claims. It adds latency for no gain, so the served pipeline is hybrid without reranking. A domain-tuned reranker is the obvious next experiment.
+- **BM25 is a strong baseline.** This implementation scores 0.663 nDCG@10, matching the 0.665 reported for BM25 in the BEIR paper, and it beats the off-the-shelf dense model. TF-IDF is a much weaker comparison point.
+- **Hybrid retrieval beats either retriever alone:** +3 nDCG points over BM25 and +4 over base dense. Lexical and semantic retrieval miss different documents, and reciprocal rank fusion combines them without any score calibration.
+- **Fine-tuning fixes the dense model.** [finetune.py](finetune.py) trains MiniLM for 3 epochs (16 min on a laptop CPU) on 823 claim→evidence pairs from the SciFact *train* split, using a contrastive loss with in-batch negatives. Hyperparameters were fixed up front, 10% of the train claims were held out for validation (nDCG@10 0.673 → 0.698), and the test set was evaluated once. On test, dense goes from 0.651 to **0.693 nDCG@10** (+4.2) and recall@10 from 0.79 to **0.86**, overtaking BM25. Fused with BM25 it reaches **0.701**, the best system here and the one the API serves.
+- **The reranker did not help.** `cross-encoder/ms-marco-MiniLM-L-6-v2` is trained on web search queries and does not transfer to biomedical claims. It adds latency for no gain, so the served pipeline is hybrid without reranking.
 - **pgvector matches exact search.** The HNSW index in Postgres returns the same quality as exact FAISS search, so the database can replace the in-memory index without losing accuracy.
 
 ## Claim verification: single-shot RAG vs. multi-agent
@@ -88,7 +91,8 @@ The embeddings are copied from the cached FAISS index, so loading never re-embed
 ```bash
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 python download_data.py
-python run_eval.py            # retrieval ablation (builds and caches the index on first run)
+python finetune.py            # fine-tune MiniLM on SciFact train (~16 min on CPU)
+python run_eval.py            # retrieval ablation (builds and caches the indexes on first run)
 python -m pytest tests        # metric, chunker, BM25 and fusion tests
 ```
 
@@ -119,7 +123,7 @@ The image ships with the dataset, FAISS index and model weights already built (C
 
 ### Deploying to Cloud Run
 
-This needs a GCP project with billing enabled. Run `python download_data.py` and `python run_eval.py` first: the image copies the local corpus and prebuilt FAISS index, so the build never depends on the dataset host and never re-embeds. Cloud Run scales to zero; `--max-instances 1` caps the worst-case bill.
+This needs a GCP project with billing enabled. Run `python download_data.py` and `python finetune.py` first: the image copies the local corpus, the fine-tuned model and its prebuilt FAISS index, so the build never depends on the dataset host and never re-embeds. Cloud Run scales to zero; `--max-instances 1` caps the worst-case bill.
 
 ```bash
 PROJECT=$(gcloud config get project); IMG=us-central1-docker.pkg.dev/$PROJECT/rag/scifact-rag:v1
@@ -151,6 +155,7 @@ The API key lives in Secret Manager and is never baked into the image.
 | `src/ingest.py`, `src/dataset.py` | chunking, BEIR loading |
 | `src/baseline.py` | TF-IDF and BM25 retrievers |
 | `src/embedding.py` | MiniLM + FAISS retriever with an on-disk index cache |
+| `finetune.py` | contrastive fine-tuning of MiniLM on SciFact train |
 | `src/fusion.py` | reciprocal rank fusion, cross-encoder reranker |
 | `src/pgstore.py` | Postgres schema, loader, pgvector retriever |
 | `src/rag.py`, `src/telemetry.py` | grounded answers, streaming metrics, tracing |
@@ -161,6 +166,6 @@ The API key lives in Secret Manager and is never baked into the image.
 ## Limitations
 
 - SciFact is small (5k documents). Exact FAISS search is fast at this size; HNSW in pgvector matters only at larger scales.
-- The dense model is a general-purpose 22M-parameter encoder. Biomedical encoders would likely score higher.
+- The dense model is a small 22M-parameter encoder, fine-tuned on about 800 pairs. A larger or biomedical base model would likely score higher.
 - The agent is Gemini-only through ADK's native client. Other providers need ADK's LiteLLM wrapper.
 - Claim-verification results come from a sample of dev claims sized for free-tier rate limits, not the full dev set.

@@ -10,3 +10,4 @@ results_claims.json
 __pycache__
 tests
 .vscode
+models/checkpoints/

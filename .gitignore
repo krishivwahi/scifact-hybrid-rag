@@ -12,3 +12,5 @@ data/scifact_claims/
 data/scifact_claims.tar.gz
 traces.jsonl
 eval_claims.log
+models/
+finetune.log
