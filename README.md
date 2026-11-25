@@ -126,16 +126,20 @@ PROJECT=$(gcloud config get project); IMG=us-central1-docker.pkg.dev/$PROJECT/ra
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
 
 # the key goes from .env straight into Secret Manager; a dedicated service account can read only that secret
-grep '^LLM_API_KEY=' .env | cut -d= -f2- | tr -d '
- ' | gcloud secrets create llm-api-key --data-file=-
+grep '^LLM_API_KEY=' .env | cut -d= -f2- | tr -d '\r\n ' | gcloud secrets create llm-api-key --data-file=-
 gcloud iam service-accounts create scifact-rag-run
-gcloud secrets add-iam-policy-binding llm-api-key   --member serviceAccount:scifact-rag-run@$PROJECT.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor
+gcloud secrets add-iam-policy-binding llm-api-key \
+  --member serviceAccount:scifact-rag-run@$PROJECT.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor
 
 gcloud artifacts repositories create rag --repository-format=docker --location=us-central1
 gcloud auth configure-docker us-central1-docker.pkg.dev
 docker build -t $IMG . && docker push $IMG
 
-gcloud run deploy scifact-rag --image $IMG --region us-central1   --service-account scifact-rag-run@$PROJECT.iam.gserviceaccount.com   --cpu 1 --memory 2Gi --cpu-boost --min-instances 0 --max-instances 1 --allow-unauthenticated   --set-env-vars LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/,LLM_MODEL=gemini-3.5-flash-lite   --set-secrets LLM_API_KEY=llm-api-key:latest
+gcloud run deploy scifact-rag --image $IMG --region us-central1 \
+  --service-account scifact-rag-run@$PROJECT.iam.gserviceaccount.com \
+  --cpu 1 --memory 2Gi --cpu-boost --min-instances 0 --max-instances 1 --allow-unauthenticated \
+  --set-env-vars LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/,LLM_MODEL=gemini-3.5-flash-lite \
+  --set-secrets LLM_API_KEY=llm-api-key:latest
 ```
 
 The API key lives in Secret Manager and is never baked into the image.
