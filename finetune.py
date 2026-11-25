@@ -5,6 +5,7 @@ away from every other abstract in the batch. Hyperparameters are fixed up front;
 claims are held out as a validation set, and the test set is never touched here (run_eval.py reports it).
 """
 import random
+from pathlib import Path
 
 from datasets import Dataset
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
@@ -45,6 +46,7 @@ train = Dataset.from_dict({"anchor": [a for a, _ in pairs], "positive": [p for _
 SentenceTransformerTrainer(model=model, args=args, train_dataset=train,
                            loss=MultipleNegativesRankingLoss(model)).train()
 model.save(OUT)
+Path("data/scifact-ft.faiss").unlink(missing_ok=True)  # the cached index holds the previous model's vectors
 
 # sanity check on the held-out train claims only
 val_q = {q: queries[q] for q in val_ids}
