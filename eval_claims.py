@@ -41,18 +41,20 @@ def rag_verdict(retriever, claim: str) -> tuple[dict, dict]:
     match = re.search(r"\{.*\}", text, re.S)
     try:
         return Verdict.model_validate_json(match.group(0)).model_dump(), {**stats, "llm_calls": 1}
-    except Exception:  # unparseable output counts as NEI rather than crashing the run
-        return {"label": "NEI", "doc_ids": []}, {**stats, "llm_calls": 1}
+    except Exception:  # scored as NEI, but counted so it can't hide in the results
+        print(f"  unparseable output: {text[:120]!r}")
+        return {"label": "NEI", "doc_ids": []}, {**stats, "llm_calls": 1, "parse_error": 1}
 
 
 def with_retry(fn, *args):
+    """Returns None if every attempt fails, so one overloaded claim doesn't lose the whole run."""
     for attempt in range(3):
         try:
             return fn(*args)
-        except Exception as e:  # free tiers rate-limit hard; back off and retry
-            print(f"  retry after error: {str(e)[:120]}")
+        except Exception as e:  # free tiers return 429/503 under load; back off and retry
+            print(f"  retry after error: {' '.join(str(e).split())[:120]}")
             time.sleep(30 * (attempt + 1))
-    raise RuntimeError("gave up after 3 attempts")
+    return None
 
 
 def score(gold, preds, stats):
@@ -68,6 +70,7 @@ def score(gold, preds, stats):
         "tokens/claim": sum(s["tokens_in"] + s["tokens_out"] for s in stats) / n,
         "latency s/claim": sum(s["latency_s"] for s in stats) / n,
         "$/claim": sum(s["cost_usd"] for s in stats) / n,
+        "parse errors": sum(s.get("parse_error", 0) for s in stats),
     }
 
 
@@ -78,26 +81,31 @@ def main():
     retriever = build_retriever()
     runner = build_agent(retriever)
 
-    results = {}
+    outputs = {}
     for name, run in [
         ("Single-shot RAG", lambda claim: rag_verdict(retriever, claim)),
         ("ADK multi-agent", lambda claim: asyncio.run(check_claim(runner, claim))),
     ]:
-        preds, stats = [], []
+        outputs[name] = []
         for i, (_cid, claim, label, _docs) in enumerate(gold, 1):
-            verdict, s = with_retry(run, claim)
-            preds.append(verdict)
-            stats.append(s)
-            print(f"{name} {i}/{len(gold)}: gold={label} pred={verdict['label']}")
-        results[name] = score(gold, preds, stats)
+            out = with_retry(run, claim)
+            outputs[name].append(out)
+            print(f"{name} {i}/{len(gold)}: gold={label} pred={out[0]['label'] if out else 'FAILED'}")
+
+    # score both systems on the same claims: drop any claim either system failed on
+    keep = [i for i in range(len(gold)) if all(outs[i] for outs in outputs.values())]
+    results = {name: score([gold[i] for i in keep], [outs[i][0] for i in keep], [outs[i][1] for i in keep])
+               for name, outs in outputs.items()}
 
     with open("results_claims.json", "w") as f:
-        json.dump({"n_claims": len(gold), "results": results}, f, indent=2)
+        json.dump({"n_claims": len(keep), "skipped_after_retries": len(gold) - len(keep), "results": results}, f, indent=2)
     cols = list(next(iter(results.values())))
-    print(f"\n{len(gold)} SciFact dev claims\n| System | " + " | ".join(cols) + " |")
+    print(f"\n{len(keep)} SciFact dev claims ({len(gold) - len(keep)} skipped after retries)")
+    print("| System | " + " | ".join(cols) + " |")
     print("|---" * (len(cols) + 1) + "|")
     for name, m in results.items():
-        print(f"| {name} | " + " | ".join(f"{v:.6f}" if k == "$/claim" else f"{v:.3f}" for k, v in m.items()) + " |")
+        print(f"| {name} | " + " | ".join(
+            f"{v:.6f}" if k == "$/claim" else str(v) if k == "parse errors" else f"{v:.3f}" for k, v in m.items()) + " |")
 
 
 if __name__ == "__main__":

@@ -6,11 +6,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 COPY src/ src/
-COPY download_data.py app.py ./
-# Bake the dataset, FAISS index and model weights into the image so cold starts don't re-embed
-RUN python download_data.py \
- && python -c "from src.pipeline import build_retriever; build_retriever()" \
- && rm -f data/*.zip data/*.tar.gz
+COPY app.py ./
+# Bake the corpus, the prebuilt FAISS index (run download_data.py + run_eval.py first) and model weights
+# into the image: builds don't depend on the dataset host, and cold starts never re-embed
+COPY data/scifact/ data/scifact/
+COPY data/scifact.faiss data/
+RUN python -c "from src.pipeline import build_retriever; build_retriever()"
 ENV HF_HUB_OFFLINE=1 PORT=8080
 
 # LLM_API_KEY comes from Secret Manager at deploy time, never baked in

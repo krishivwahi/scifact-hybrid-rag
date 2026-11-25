@@ -1,0 +1,26 @@
+{
+  "n_claims": 16,
+  "skipped_after_retries": 14,
+  "results": {
+    "Single-shot RAG": {
+      "accuracy": 0.6875,
+      "macro-F1": 0.6078431372549019,
+      "citation precision": 0.8333333333333334,
+      "LLM calls/claim": 1.0,
+      "tokens/claim": 1901.0625,
+      "latency s/claim": 2.682625,
+      "$/claim": 0.0,
+      "parse errors": 0
+    },
+    "ADK multi-agent": {
+      "accuracy": 0.5625,
+      "macro-F1": 0.45751633986928103,
+      "citation precision": 0.7083333333333334,
+      "LLM calls/claim": 5.3125,
+      "tokens/claim": 6233.625,
+      "latency s/claim": 12.16,
+      "$/claim": 0.0,
+      "parse errors": 0
+    }
+  }
+}

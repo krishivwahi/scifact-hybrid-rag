@@ -16,17 +16,19 @@ from google.adk.agents import LlmAgent, LoopAgent, SequentialAgent
 from google.adk.runners import InMemoryRunner
 from google.adk.tools import ToolContext
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .telemetry import cost_usd
 
 load_dotenv()
 # shortcut: ADK talks to Gemini natively, so the agent needs a gemini-* LLM_MODEL; wrap with LiteLlm for other providers
 os.environ.setdefault("GOOGLE_API_KEY", os.environ.get("LLM_API_KEY", ""))
-MODEL = os.environ.get("LLM_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("LLM_MODEL", "gemini-3.5-flash-lite")
 
 
 class Verdict(BaseModel):
+    model_config = ConfigDict(coerce_numbers_to_str=True)  # models often emit doc ids as JSON numbers
+
     label: Literal["SUPPORT", "CONTRADICT", "NEI"]
     doc_ids: list[str]
     rationale: str

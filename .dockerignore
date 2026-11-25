@@ -2,7 +2,9 @@
 .env
 .venv
 venv
-data
+data/*.zip
+data/*.tar.gz
+data/scifact_claims/
 traces.jsonl
 results_claims.json
 __pycache__

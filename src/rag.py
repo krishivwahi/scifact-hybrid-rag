@@ -12,6 +12,7 @@ load_dotenv()
 _client = OpenAI(
     api_key=os.environ["LLM_API_KEY"],
     base_url=os.environ.get("LLM_BASE_URL"),
+    timeout=60,  # fail fast: overloaded models otherwise hang for minutes behind silent retries
 )
 
 _MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")

@@ -2,6 +2,8 @@
 
 [![tests](https://github.com/krishivwahi/Embedding-Based-Semantic-Search-System-RAG-System-/actions/workflows/test.yml/badge.svg)](https://github.com/krishivwahi/Embedding-Based-Semantic-Search-System-RAG-System-/actions/workflows/test.yml)
 
+**Live demo:** [scifact-rag on Cloud Run](https://scifact-rag-wg3l7sdcsq-uc.a.run.app/docs), an interactive API page where you can try `/ask` and `/verify`. The first request after it has been idle takes about 30 s while the service wakes up.
+
 A retrieval-augmented generation system over [BEIR SciFact](https://github.com/beir-cellar/beir) (5,183 biomedical abstracts, 300 expert-labeled test queries). It covers the full path: chunking, sparse and dense retrieval, rank fusion, a Postgres + pgvector store, grounded answers with citations, a multi-agent claim checker built on Google ADK, per-request LLM metrics with OpenTelemetry traces, and a container ready for Cloud Run.
 
 Every design choice below is backed by a measurement on the SciFact test set.
@@ -95,7 +97,7 @@ For the LLM parts, create `.env`. Any OpenAI-compatible provider works for `ask.
 ```env
 LLM_API_KEY=your_key
 LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-LLM_MODEL=gemini-2.5-flash
+LLM_MODEL=gemini-3.5-flash-lite
 ```
 
 ```bash
@@ -117,18 +119,23 @@ The image ships with the dataset, FAISS index and model weights already built (C
 
 ### Deploying to Cloud Run
 
-This needs a GCP project with billing enabled. Cloud Run scales to zero, so demo traffic stays within the free tier; storing the image in Artifact Registry costs a few cents a month.
+This needs a GCP project with billing enabled. Run `python download_data.py` and `python run_eval.py` first: the image copies the local corpus and prebuilt FAISS index, so the build never depends on the dataset host and never re-embeds. Cloud Run scales to zero; `--max-instances 1` caps the worst-case bill.
 
 ```bash
-gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com
-printf %s "$LLM_API_KEY" | gcloud secrets create llm-api-key --data-file=-
-gcloud secrets add-iam-policy-binding llm-api-key \
-  --member "serviceAccount:$(gcloud projects describe $(gcloud config get project) --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
-  --role roles/secretmanager.secretAccessor
-gcloud run deploy scifact-rag --source . --region us-central1 \
-  --memory 2Gi --cpu 2 --min-instances 0 --max-instances 1 --allow-unauthenticated \
-  --set-env-vars LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/,LLM_MODEL=gemini-2.5-flash \
-  --set-secrets LLM_API_KEY=llm-api-key:latest
+PROJECT=$(gcloud config get project); IMG=us-central1-docker.pkg.dev/$PROJECT/rag/scifact-rag:v1
+gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
+
+# the key goes from .env straight into Secret Manager; a dedicated service account can read only that secret
+grep '^LLM_API_KEY=' .env | cut -d= -f2- | tr -d '
+ ' | gcloud secrets create llm-api-key --data-file=-
+gcloud iam service-accounts create scifact-rag-run
+gcloud secrets add-iam-policy-binding llm-api-key   --member serviceAccount:scifact-rag-run@$PROJECT.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor
+
+gcloud artifacts repositories create rag --repository-format=docker --location=us-central1
+gcloud auth configure-docker us-central1-docker.pkg.dev
+docker build -t $IMG . && docker push $IMG
+
+gcloud run deploy scifact-rag --image $IMG --region us-central1   --service-account scifact-rag-run@$PROJECT.iam.gserviceaccount.com   --cpu 1 --memory 2Gi --cpu-boost --min-instances 0 --max-instances 1 --allow-unauthenticated   --set-env-vars LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/,LLM_MODEL=gemini-3.5-flash-lite   --set-secrets LLM_API_KEY=llm-api-key:latest
 ```
 
 The API key lives in Secret Manager and is never baked into the image.
