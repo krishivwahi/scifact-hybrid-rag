@@ -1,6 +1,6 @@
 # SciFact RAG: Hybrid Retrieval, Grounded Answers and Multi-Agent Claim Checking
 
-[![tests](https://github.com/krishivwahi/Embedding-Based-Semantic-Search-System-RAG-System-/actions/workflows/test.yml/badge.svg)](https://github.com/krishivwahi/Embedding-Based-Semantic-Search-System-RAG-System-/actions/workflows/test.yml)
+[![tests](https://github.com/krishivwahi/scifact-hybrid-rag/actions/workflows/test.yml/badge.svg)](https://github.com/krishivwahi/scifact-hybrid-rag/actions/workflows/test.yml)
 
 **Live demo:** [scifact-rag on Cloud Run](https://scifact-rag-wg3l7sdcsq-uc.a.run.app/docs), an interactive API page where you can try `/ask` and `/verify`. The first request after it has been idle takes about 30 s while the service wakes up.
 
@@ -45,7 +45,7 @@ Latency is measured on a laptop CPU (no GPU) and excludes model loading. The fin
 
 What the numbers say:
 
-- **BM25 is a strong baseline.** This implementation scores 0.663 nDCG@10, matching the 0.665 reported for BM25 in the BEIR paper, and it beats the off-the-shelf dense model. TF-IDF is a much weaker comparison point.
+- **BM25 is a strong baseline.** This implementation scores 0.663 nDCG@10, matching the 0.665 reported for BM25 in the [BEIR paper](https://arxiv.org/abs/2104.08663) (Anserini's reproduction gets 0.672; indexing details account for the spread), and it beats the off-the-shelf dense model. TF-IDF is a much weaker comparison point.
 - **Hybrid retrieval beats either retriever alone:** +3 nDCG points over BM25 and +4 over base dense. Lexical and semantic retrieval miss different documents, and reciprocal rank fusion combines them without any score calibration.
 - **Fine-tuning fixes the dense model.** [finetune.py](finetune.py) trains MiniLM for 3 epochs (16 min on a laptop CPU) on 823 claim→evidence pairs from the SciFact *train* split, using a contrastive loss with in-batch negatives. Hyperparameters were fixed up front, 10% of the train claims were held out for validation (nDCG@10 0.673 → 0.698), and the test set was evaluated once. On test, dense goes from 0.651 to **0.693 nDCG@10** (+4.2) and recall@10 from 0.79 to **0.86**, overtaking BM25. Fused with BM25 it reaches **0.701**, the best system here and the one the API serves.
 - **The reranker did not help.** `cross-encoder/ms-marco-MiniLM-L-6-v2` is trained on web search queries and does not transfer to biomedical claims. It adds latency for no gain, so the served pipeline is hybrid without reranking.
