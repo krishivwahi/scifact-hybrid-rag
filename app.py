@@ -5,7 +5,7 @@ from src.agent import build_agent, check_claim
 from src.pipeline import build_retriever
 from src.rag import answer
 
-app = FastAPI(title="SciFact RAG", description="Hybrid retrieval + RAG + multi-agent claim checking over SciFact")
+app = FastAPI(title="SciFact Hybrid RAG", description="Hybrid retrieval + RAG + multi-agent claim checking over SciFact")
 retriever = build_retriever()
 runner = build_agent(retriever)
 

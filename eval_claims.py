@@ -1,9 +1,12 @@
 """Claim verification on SciFact dev: single-shot RAG vs the ADK multi-agent checker.
 
 Gold labels come from Postgres (run load_pg.py first). Usage: python eval_claims.py [n_claims]
+Both systems run on each claim back to back, and every finished claim is appended to a progress file,
+so a run stopped by the free tier's daily quota resumes where it left off the next day.
 """
 import asyncio
 import json
+import os
 import re
 import sys
 import time
@@ -17,6 +20,8 @@ from src.rag import generate
 from src.telemetry import setup_tracing
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 30
+MODEL = os.environ.get("LLM_MODEL", "")
+PROGRESS = f"eval_progress_{MODEL}.jsonl"  # one file per model, so runs on different models never mix
 LABELS = ["SUPPORT", "CONTRADICT", "NEI"]
 
 GOLD_SQL = """
@@ -46,13 +51,20 @@ def rag_verdict(retriever, claim: str) -> tuple[dict, dict]:
         return {"label": "NEI", "doc_ids": []}, {**stats, "llm_calls": 1, "parse_error": 1}
 
 
+class QuotaExhausted(Exception):
+    pass
+
+
 def with_retry(fn, *args):
     """Returns None if every attempt fails, so one overloaded claim doesn't lose the whole run."""
     for attempt in range(3):
         try:
             return fn(*args)
-        except Exception as e:  # free tiers return 429/503 under load; back off and retry
-            print(f"  retry after error: {' '.join(str(e).split())[:120]}")
+        except Exception as e:  # free tiers return 503 under load; back off and retry
+            msg = " ".join(str(e).split())
+            if "exceeded your current quota" in msg:  # daily cap: retrying today is pointless
+                raise QuotaExhausted from e
+            print(f"  retry after error: {msg[:120]}")
             time.sleep(30 * (attempt + 1))
     return None
 
@@ -78,29 +90,44 @@ def main():
     setup_tracing()
     with connect() as conn:
         gold = conn.execute(GOLD_SQL, (N,)).fetchall()
+    done = {}
+    if os.path.exists(PROGRESS):
+        with open(PROGRESS, encoding="utf-8") as f:
+            done = {row["claim_id"]: row for row in map(json.loads, f)}
     retriever = build_retriever()
     runner = build_agent(retriever)
+    systems = {
+        "Single-shot RAG": lambda claim: rag_verdict(retriever, claim),
+        "ADK multi-agent": lambda claim: asyncio.run(check_claim(runner, claim)),
+    }
 
-    outputs = {}
-    for name, run in [
-        ("Single-shot RAG", lambda claim: rag_verdict(retriever, claim)),
-        ("ADK multi-agent", lambda claim: asyncio.run(check_claim(runner, claim))),
-    ]:
-        outputs[name] = []
-        for i, (_cid, claim, label, _docs) in enumerate(gold, 1):
-            out = with_retry(run, claim)
-            outputs[name].append(out)
-            print(f"{name} {i}/{len(gold)}: gold={label} pred={out[0]['label'] if out else 'FAILED'}")
+    with open(PROGRESS, "a", encoding="utf-8") as f:
+        for i, (cid, claim, label, _docs) in enumerate(gold, 1):
+            if cid in done:
+                continue
+            try:
+                outs = {name: with_retry(run, claim) for name, run in systems.items()}
+            except QuotaExhausted:
+                print(f"Daily quota exhausted after {len(done)}/{len(gold)} claims; re-run tomorrow to resume.")
+                break
+            if not all(outs.values()):
+                print(f"claim {i}/{len(gold)}: skipped after retries, will retry on the next run")
+                continue
+            done[cid] = {"claim_id": cid, **{name: {"verdict": v, "stats": st} for name, (v, st) in outs.items()}}
+            f.write(json.dumps(done[cid]) + "\n")
+            f.flush()  # a crash or quota stop never loses a finished claim
+            print(f"claim {i}/{len(gold)}: gold={label} " + " ".join(
+                f"{name}={out[0]['label']}" for name, out in outs.items()))
 
-    # score both systems on the same claims: drop any claim either system failed on
-    keep = [i for i in range(len(gold)) if all(outs[i] for outs in outputs.values())]
-    results = {name: score([gold[i] for i in keep], [outs[i][0] for i in keep], [outs[i][1] for i in keep])
-               for name, outs in outputs.items()}
-
+    scored = [g for g in gold if g[0] in done]
+    if not scored:
+        return
+    results = {name: score(scored, [done[g[0]][name]["verdict"] for g in scored],
+                           [done[g[0]][name]["stats"] for g in scored]) for name in systems}
     with open("results_claims.json", "w") as f:
-        json.dump({"n_claims": len(keep), "skipped_after_retries": len(gold) - len(keep), "results": results}, f, indent=2)
+        json.dump({"model": MODEL, "n_claims": len(scored), "of": len(gold), "results": results}, f, indent=2)
     cols = list(next(iter(results.values())))
-    print(f"\n{len(keep)} SciFact dev claims ({len(gold) - len(keep)} skipped after retries)")
+    print(f"\n{len(scored)}/{len(gold)} SciFact dev claims, {MODEL}")
     print("| System | " + " | ".join(cols) + " |")
     print("|---" * (len(cols) + 1) + "|")
     for name, m in results.items():

@@ -66,7 +66,22 @@ SciFact claims are labeled SUPPORT, CONTRADICT or NOT ENOUGH INFO against specif
 
 Reported per system: label accuracy, macro-F1, **citation precision** (the share of cited abstracts that are gold evidence), LLM calls, tokens, latency and $ per claim.
 
-<!-- results: paste the table printed by `python eval_claims.py` here -->
+30 dev claims (13 SUPPORT, 5 CONTRADICT, 12 NEI), `gemini-3.1-flash-lite` for both systems, both retrieving from the served hybrid retriever:
+
+| System | Accuracy | Macro-F1 | Citation precision | LLM calls/claim | Tokens/claim | Latency s/claim |
+|---|---|---|---|---|---|---|
+| **Single-shot RAG** | **0.700** | **0.694** | **0.571** | **1.0** | **1,821** | **13.6** |
+| ADK multi-agent | 0.667 | 0.650 | 0.529 | 5.3 | 8,139 | 65.5 |
+
+Both ran on the free tier ($0). Latency includes free-tier queueing, so compare the ratio, not the absolute seconds.
+
+What the numbers say:
+
+- **The multi-agent checker did not beat single-shot RAG.** It used 5.3× the LLM calls, 4.5× the tokens and 4.8× the latency. The two systems disagreed on 7 of 30 claims; single-shot was right on 4 and the agent on 3. That gap is not statistically meaningful, so the honest conclusion is "no gain for about 5× the cost", not "the agent is worse".
+- **The difference is in NOT ENOUGH INFO.** Both systems got all 5 CONTRADICT claims right and were within one claim on SUPPORT (9 vs 10 of 13). On NEI claims single-shot was right on 7 of 12 and the agent on 5. The researcher keeps searching until it finds something that looks relevant, and the verifier then tends to commit to SUPPORT or CONTRADICT when it should abstain.
+- **Deciding when the evidence is insufficient is the hard part for both systems** (about 50% on NEI, against 100% on CONTRADICT). That points to better abstention, such as calibrated thresholds or NEI-focused prompting, before more agent steps.
+
+`eval_claims.py` runs both systems on each claim back to back and appends finished claims to a progress file, so runs interrupted by free-tier 503s or daily quotas resume without re-running or mixing models.
 
 ## Observability
 
