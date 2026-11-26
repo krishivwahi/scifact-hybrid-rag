@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/krishivwahi/scifact-hybrid-rag/actions/workflows/test.yml/badge.svg)](https://github.com/krishivwahi/scifact-hybrid-rag/actions/workflows/test.yml)
 
-Hybrid BM25 + fine-tuned dense retrieval over 5,183 biomedical abstracts ([BEIR SciFact](https://github.com/beir-cellar/beir)) reaches **0.701 nDCG@10** on 300 expert-labeled test queries, up from 0.663 for BM25 and 0.651 for the off-the-shelf embedding model, and serves grounded, cited answers from a [live Cloud Run API](https://scifact-rag-wg3l7sdcsq-uc.a.run.app/docs).
+Hybrid BM25 + fine-tuned dense retrieval over 5,183 biomedical abstracts ([BEIR SciFact](https://github.com/beir-cellar/beir)) reaches **0.701 nDCG@10** on 300 expert-labeled test queries, up from 0.663 for BM25 and 0.651 for the off-the-shelf embedding model, and serves grounded, cited answers from a [live demo on Cloud Run](https://scifact-rag-wg3l7sdcsq-uc.a.run.app/).
 
 ## Retrieval results (ablation)
 
@@ -31,7 +31,7 @@ What the numbers say:
 
 ## About the project
 
-**Live demo:** [scifact-rag on Cloud Run](https://scifact-rag-wg3l7sdcsq-uc.a.run.app/docs), an interactive API page where you can try `/ask` and `/verify`. The first request after it has been idle takes about 30 s while the service wakes up.
+**Live demo:** [scifact-rag on Cloud Run](https://scifact-rag-wg3l7sdcsq-uc.a.run.app/): ask a question or check a claim, with cited abstracts and per-request token, latency and cost stats. The API itself is documented at [`/docs`](https://scifact-rag-wg3l7sdcsq-uc.a.run.app/docs). The first request after it has been idle takes about 30 s while the service wakes up.
 
 The project covers the full path: chunking, sparse and dense retrieval, rank fusion, a Postgres + pgvector store, grounded answers with citations, a multi-agent claim checker built on Google ADK, per-request LLM metrics with OpenTelemetry traces, and a container ready for Cloud Run.
 
@@ -180,7 +180,7 @@ The API key lives in Secret Manager and is never baked into the image.
 | `src/rag.py`, `src/telemetry.py` | grounded answers, streaming metrics, tracing |
 | `src/agent.py` | ADK multi-agent claim checker |
 | `run_eval.py`, `eval_claims.py` | retrieval ablation, claim verification eval |
-| `app.py`, `Dockerfile` | FastAPI service, container |
+| `app.py`, `static/index.html`, `Dockerfile` | FastAPI service, demo page, container |
 
 ## Limitations
 

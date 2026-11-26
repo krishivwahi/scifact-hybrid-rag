@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt --extra-index-url https://dow
 
 COPY src/ src/
 COPY app.py ./
+COPY static/ static/
 # Bake the corpus, the fine-tuned model and its prebuilt FAISS index (run download_data.py + finetune.py first)
 # into the image: builds don't depend on the dataset host, and cold starts never re-embed
 COPY data/scifact/ data/scifact/

@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from src.agent import build_agent, check_claim
@@ -17,6 +18,11 @@ class AskRequest(BaseModel):
 
 class VerifyRequest(BaseModel):
     claim: str = Field(min_length=3, max_length=500)
+
+
+@app.get("/", include_in_schema=False)
+def home():
+    return FileResponse("static/index.html")
 
 
 @app.get("/health")  # Cloud Run reserves paths ending in "z", so /healthz never reaches the app
